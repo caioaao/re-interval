@@ -39,4 +39,6 @@
       (register-handler
        (keyword pref (name action))
        middleware
-       (fn [_ _] (put! control-channel action))))))
+       (fn [db _]
+         (put! control-channel action)
+         db)))))
