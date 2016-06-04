@@ -1,6 +1,6 @@
 # re-interval
 
-A ClojureScript library for creating intervals controlled by events.
+A re-frame/ClojureScript library for creating intervals controlled by events.
 
 ## Usage
 

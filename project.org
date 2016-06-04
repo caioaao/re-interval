@@ -1,0 +1,183 @@
+#+TITLE: re-interval
+#+AUTHOR: Caio Oliveira
+#+LANGUAGE: en
+
+* Overview and setup
+
+** Prerequisites
+  1. A recent version of Emacs (the one used to write this document initially
+     was 24.5.1);
+
+  2. Clojure and leiningen;
+
+  3. Emacs configured to talk to a Clojure REPL (preferably using CIDER);
+
+** Initial setup
+
+   First run =scripts/brepl= and access http://localhost:9000 on a browser to
+   have access to the REPL running code in the browser environment. This is
+   needed for some js functions (like =setTimeout=) to work.
+
+   Configure =org-babel= (you must have =ob-clojure= installed):
+
+   #+BEGIN_SRC emacs-lisp :exports code :results silent :tangle no
+     (require 'org)
+     (org-babel-do-load-languages
+      'org-babel-load-languages
+      '((clojure . t)))
+   #+END_SRC
+
+   After that, make sure you have CIDER connected to the REPL and run the
+   following to connect to a headless browser (make sure you have [[http://phantomjs.org/][PhantomJS]]
+   installed).
+
+   #+BEGIN_SRC clojure :exports code :results silent :session s1 :tangle no
+     (cemerick.piggieback/cljs-repl :repl-env (cemerick.austin/exec-env))
+   #+END_SRC
+
+   To test if the setup was successful, check if running the following block
+   shows the message "2" in the minibuffer.
+
+   #+BEGIN_SRC clojure :exports code :results silent :tangle no
+     (+ 1 1)
+   #+END_SRC
+
+   To generate the source code, use hit =C-c C-v C-t= for the tangle step.
+
+** Caveats
+
+  Unfortunately, due to [[http://stackoverflow.com/a/21401449/1229157][JavaScript's limitation]], there's no way to block the
+  main "thread", so the examples are a bit harder to visualize. Stuff is still
+  printed on the REPL, but results can't be collected to this document.
+
+* Development
+
+  First, lets import the necessary dependencies to the namespace.
+
+  #+name: core-dependencies
+  #+BEGIN_SRC clojure :exports code :results silent :session s1 :tangle src/re_interval/core.cljs
+    (ns re-interval.core
+      (:require [cljs.core.async :refer [chan timeout <! >! alts! close! put!]]
+                [re-frame.core :refer [register-handler dispatch]])
+      (:require-macros [cljs.core.async.macros :refer [go go-loop]]))
+  #+END_SRC
+
+  The simplest interval, without any way to control it other than directly
+  manipulating the code, is as follows:
+
+  #+BEGIN_SRC clojure :exports code :results silent :session s1 :tangle no
+    (go-loop [ticks-left 3]
+      (if-not (zero? ticks-left)
+        (do (<! (timeout 100))
+            (print "tick...")
+            (recur (dec ticks-left)))))
+  #+END_SRC
+
+  To communicate with the thread, we have to create a control channel.
+
+  #+BEGIN_SRC clojure :exports code :results silent :session s1 :tangle no
+    (let [control-channel (chan)]
+      ;; controlled thread
+      (go-loop [cmd (<! control-channel)]
+        (when (= cmd :tick)
+          (print "tick..."))
+        (when-not (= cmd :exit)
+          (recur (<! control-channel))))
+
+      ;; controller
+      (go-loop [ticks-left 3]
+        (if-not (zero? ticks-left)
+          (do (<! (timeout 100))
+              (>! control-channel :tick)
+              (recur (dec ticks-left)))
+          (>! control-channel :exit))))
+  #+END_SRC
+
+  But that's a bit useless, as the controller is calling the shots on the time
+  interval. A more useful controller would send =start= and =stop= commands to
+  the timer. We will use =alts!= to combine =timeout= and =control-channel=. The
+  following example is an interval that exits on any command received. A second
+  go block is created to simulate an asynchronous controller. We will wrap it
+  all in a creator, and return only the control channel so we can have as many
+  intervals as we want. To make it even more useful, =make-interval= receives a
+  function to be called when it's time to tick.
+
+  #+name: core-interval
+  #+BEGIN_SRC clojure :exports code :results silent :session s1 :tangle src/re_interval/core.cljs
+    (defn interval
+      "Returns a control channel to an interval. Commands are:
+
+      - `:start`: Starts counting time. If counter is already active, does nothing;
+      - `:restart`: Starts counting time from 0. If stopped, will start anyway.
+      - `:stop`: Stops the counter. Next time `:start` is called, counter starts from zero.
+
+      Any other command issued will be treated as an exit signal."
+      [timeout-in-msecs f & args]
+      (let [control-channel (chan)]
+        ;; controlled thread - will exit on any command received
+        (go-loop [channels [control-channel]]
+          (let [[cmd ch] (alts! channels)]
+            (if(identical? ch control-channel) ;; a command was received
+              (case cmd
+                :start   (recur [control-channel
+                                 (or (second channels)
+                                     (timeout timeout-in-msecs))])
+                :restart (recur [control-channel
+                                 (timeout timeout-in-msecs)])
+                :stop    (recur [control-channel])
+                nil) ;; will exit on unknown command
+              (do ;; timeout channel happened, so it's time to tick and reset counter
+                (apply f args)
+                (recur [control-channel (timeout timeout-in-msecs)])))))
+        control-channel))
+  #+END_SRC
+
+  A basic controller can be created as follows.
+
+  #+BEGIN_SRC clojure :exports code :results silent :session s1 :tangle no
+    (let [control-channel (interval 300 #(print "tick..."))]
+      (go
+        (print "controller> wait before starting")
+        (<! (timeout 600))
+        (print "controller> starting")
+        (>! control-channel :start)
+        (print "controller> waiy before stopping")
+        (<! (timeout 1200))
+        (print "controller> stopping")
+        (>! control-channel :stop)
+        (print "controller> exiting")
+        (close! control-channel)))
+  #+END_SRC
+
+  We're now able to make it interact with re-frame. We want to control the
+  intervals using [[https://github.com/Day8/re-frame#event-handlers][re-frame's events]]. Event handlers should be registered
+  according to a prefix. For instance, if =:foo= is passed as the controller's
+  prefix, the interval would be controlled by =:foo/start=, =:foo/stop= and
+  =:foo/restart=. An event =:foo/tick= will be dispatched every time the
+  interval ticks.
+
+  #+name: core-interval-handlers
+  #+BEGIN_SRC clojure :exports code :results silent :session s1 :tangle src/re_interval/core.cljs
+    (defn register-interval-handlers
+      [k-pref middleware timeout-in-msecs]
+      (let [pref (name k-pref)
+            control-channel (interval timeout-in-msecs
+                                      dispatch [(keyword pref "tick")])]
+        (doseq [action [:start :stop :restart]]
+          (register-handler
+           (keyword pref (name action))
+           middleware
+           (fn [_ _] (put! control-channel action))))))
+  #+END_SRC
+
+* Final result
+
+  #+name: core
+  #+BEGIN_SRC clojure :exports code :results silent :session s1 :tangle no
+    <<core-dependencies>>
+
+    <<core-interval>>
+
+    <<core-interval-handlers>>
+  #+END_SRC
+
