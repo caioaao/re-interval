@@ -169,15 +169,3 @@
            middleware
            (fn [_ _] (put! control-channel action))))))
   #+END_SRC
-
-* Final result
-
-  #+name: core
-  #+BEGIN_SRC clojure :exports code :results silent :session s1 :tangle no
-    <<core-dependencies>>
-
-    <<core-interval>>
-
-    <<core-interval-handlers>>
-  #+END_SRC
-
