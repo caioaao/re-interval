@@ -35,7 +35,7 @@
   (let [pref (name k-pref)
         control-channel (interval timeout-in-msecs
                                   dispatch [(keyword pref "tick")])]
-    (doseq [action [:start :stop :restart]]
+    (doseq [action [:start :stop :restart :exit]]
       (register-handler
        (keyword pref (name action))
        middleware
