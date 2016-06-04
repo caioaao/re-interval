@@ -1,6 +1,6 @@
-(defproject re-interval "0.1.0-SNAPSHOT"
-  :description "FIXME: write this!"
-  :url "http://example.com/FIXME"
+(defproject re-interval "0.0.1"
+  :description "A re-frame/ClojureScript library for creating intervals controlled by events."
+  :url "https://github.com/caioaao/re-interval"
   :dependencies [[org.clojure/clojure "1.8.0"]
                  [org.clojure/clojurescript "1.8.51"]
                  [org.clojure/core.async "0.2.374"]
