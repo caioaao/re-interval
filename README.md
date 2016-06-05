@@ -2,6 +2,12 @@
 
 A re-frame/ClojureScript library for creating intervals controlled by events.
 
+## Dependency
+
+Add this to your `project.clj`:
+
+[![Clojars Project](http://clojars.org/re-interval/latest-version.svg)](http://clojars.org/re-interval)
+
 ## Usage
 
 To create an interval:
