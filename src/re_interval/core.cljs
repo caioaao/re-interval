@@ -1,6 +1,6 @@
 (ns re-interval.core
   (:require [cljs.core.async :refer [chan timeout <! >! alts! close! put!]]
-            [re-frame.core :refer [register-handler dispatch]])
+            [re-frame.core :refer [reg-event-fx dispatch]])
   (:require-macros [cljs.core.async.macros :refer [go go-loop]]))
 
 (defn interval
@@ -16,7 +16,7 @@
     ;; controlled thread - will exit on any command received
     (go-loop [channels [control-channel]]
       (let [[cmd ch] (alts! channels)]
-        (if(identical? ch control-channel) ;; a command was received
+        (if (identical? ch control-channel) ;; a command was received
           (case cmd
             :start   (recur [control-channel
                              (or (second channels)
@@ -30,15 +30,18 @@
             (recur [control-channel (timeout timeout-in-msecs)])))))
     control-channel))
 
-(defn register-interval-handlers
-  [k-pref middleware timeout-in-msecs]
-  (let [pref (name k-pref)
-        control-channel (interval timeout-in-msecs
-                                  dispatch [(keyword pref "tick")])]
-    (doseq [action [:start :stop :restart :exit]]
-      (register-handler
-       (keyword pref (name action))
-       middleware
-       (fn [db _]
-         (put! control-channel action)
-         db)))))
+(defn reg-event-interval
+  ([k-pref timeout-in-msecs]
+   (reg-event-interval k-pref nil timeout-in-msecs))
+  ([k-pref interceptors timeout-in-msecs]
+   (let [pref (name k-pref)
+         control-channel (interval timeout-in-msecs
+                                   dispatch [(keyword pref "tick")])]
+     (doseq [action [:start :stop :restart :exit]]
+       (let [kw (keyword pref (name action))
+             handler (fn [_ _]
+                       (put! control-channel action)
+                       nil)]
+         (if interceptors
+           (reg-event-fx kw interceptors handler)
+           (reg-event-fx kw handler)))))))

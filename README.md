@@ -13,8 +13,8 @@ Add this to your `project.clj`:
 To create an interval:
 
 ```
-(require '[re-interval.core :refer [register-interval-handlers]])
-(register-interval-handlers :interval-prefix middleware timeout-in-ms)
+(require '[re-interval.core :refer [reg-event-interval]])
+(reg-event-interval :interval-prefix middleware timeout-in-ms)
 ```
 
 To activate the interval, dispatch the event `:interval-prefix/start`. When
